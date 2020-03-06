@@ -10,7 +10,8 @@ init_data = pd.read_csv('data/Valves_v0.csv')
 constraints = pd.read_csv('data/Valves_constraints.csv')
 
 # Create Variables
-opt_list = ["N (fingers #)", "a (um)", ]
+# opt_list = ["N (fingers #)", "a (um)", "Resistance at 1 uA (kohm)"]
+opt_list = ["N (fingers #)", "a (um)"]
 metrics = ['Energy']
 filter_fail = init_data['Failed'] != 1
 data_success = init_data[filter_fail]
@@ -53,7 +54,7 @@ def gen_parameters(data, constraints, opt_list):
         else:
             raise ValueError("Type not supported")
         sub["value_type"] = typ
-        sub["log_scale"] = False
+        sub["log_scale"] = bool(constraints[o][3])
         parameters.append(sub)
 
         # Other parameter types
@@ -69,7 +70,7 @@ ax_client = AxClient()
 ax_client.create_experiment(
     name="Thermo-mechnaical Valve",
     parameters=parameters,
-    objective_name="hartmann6",
+    objective_name="Energy",
     minimize=True,  # Optional, defaults to False.
     parameter_constraints=None,  # Optional.
     outcome_constraints=None,  # Optional.
@@ -101,13 +102,21 @@ class MyRunner(Runner):
 exp.runner = MyRunner()
 exp.optimization_config = optimization_config
 
-b = []
+# exp.new_batch_trial()
+print(f"Loading parameter evaluations")
+ran = []
 for i, (idx, val) in enumerate(data_params.iterrows()):
     p = dict()
     for label in opt_list:
-        p[label] = int(val[label])
-    exp.new_trial().add_arm(Arm(name='Batch MEMs', parameters=p))
+        p[label] = val[label]
+    # exp.trials[0].add_arm(Arm(name='Batch MEMs', parameters=p))
+    if p not in ran:
+        exp.new_trial().add_arm(Arm(name=f"Batch MEMs {i}", parameters=p))
+        ran.append(p)
+        print(f" - {len(ran)} Parameters {p}")
 
+    else:
+        continue
     # ax_client.attach_trial(parameters=p)
 
 for t in exp.trials:
@@ -118,93 +127,50 @@ batch = 10
 print(f"Running Batch GP+EI optimization of {batch} samples")
 # Reinitialize GP+EI model at each step with updated data.
 data = exp.fetch_data()
+print(data.df)
 gpei = Models.BOTORCH(experiment=exp, data=data)
-generator = gpei.gen(5)
+generator = gpei.gen(batch)
 
 exp.new_batch_trial(generator_run=generator)
-for arm in exp.trials[2].arms:
+new_trial = len(exp.trials) - 1
+print(f"New Candidate Designs")
+for arm in exp.trials[new_trial].arms:
     print(arm)
 
 # generator_run = gpei.gen(5)
 # experiment.new_batch_trial(generator_run=generator_run)
 
-
-quit()
-sobol = Models.SOBOL(search_space=experiment.search_space)
-generator_run = sobol.gen(5)
-
-batch = exp.new_trial(generator_run=gpei.gen(1))
-
-quit()
-
-ax_client = AxClient()
-ax_client.create_experiment(
-    name="hartmann_test_experiment",
-    parameters=[
-        {
-            "name": "x1",
-            "type": "range",
-            "bounds": [0.0, 1.0],
-            "value_type": "float",  # Optional, defaults to inference from type of "bounds".
-            "log_scale": False,  # Optional, defaults to False.
-        },
-        {
-            "name": "x2",
-            "type": "range",
-            "bounds": [0.0, 1.0],
-        },
-        {
-            "name": "x3",
-            "type": "range",
-            "bounds": [0.0, 1.0],
-        },
-        {
-            "name": "x4",
-            "type": "range",
-            "bounds": [0.0, 1.0],
-        },
-        {
-            "name": "x5",
-            "type": "range",
-            "bounds": [0.0, 1.0],
-        },
-        {
-            "name": "x6",
-            "type": "range",
-            "bounds": [0.0, 1.0],
-        },
-    ],
-    objective_name="hartmann6",
-    minimize=True,  # Optional, defaults to False.
-    parameter_constraints=["x1 + x2 <= 2.0"],  # Optional.
-    outcome_constraints=["l2norm <= 1.25"],  # Optional.
-)
-
-# ax_client.attach_trial(parameters={"x1": 0.9, "x2": 0.9, "x3": 0.9, "x4": 0.9, "x5": 0.9, "x6": 0.9})
-
-
-# import numpy as np
-# def evaluate(parameters):
-#     x = np.array([parameters.get(f"x{i+1}") for i in range(6)])
-#     # In our case, standard error is 0, since we are computing a synthetic function.
-#     return {"hartmann6": (hartmann6(x), 0.0), "l2norm": (np.sqrt((x ** 2).sum()), 0.0)}
 #
+# quit()
+# sobol = Models.SOBOL(search_space=experiment.search_space)
+# generator_run = sobol.gen(5)
+#
+# batch = exp.new_trial(generator_run=gpei.gen(1))
+#
+# quit()
 
-for i in range(25):
-    parameters, trial_index = ax_client.get_next_trial()
-    # Local evaluation here can be replaced with deployment to external system.
-    ax_client.complete_trial(trial_index=trial_index, raw_data=evaluate(parameters))
-    # _, trial_index = ax_client.get_next_trial()
-    ax_client.log_trial_failure(trial_index=trial_index)
+# for i in range(25):
+#     parameters, trial_index = ax_client.get_next_trial()
+#     # Local evaluation here can be replaced with deployment to external system.
+#     ax_client.complete_trial(trial_index=trial_index, raw_data=evaluate(parameters))
+#     # _, trial_index = ax_client.get_next_trial()
+#     ax_client.log_trial_failure(trial_index=trial_index)
+#
+# ax_client.get_trials_data_frame().sort_values('trial_index')
+# best_parameters, values = ax_client.get_best_parameters()
 
-ax_client.get_trials_data_frame().sort_values('trial_index')
-best_parameters, values = ax_client.get_best_parameters()
-
-from ax.utils.notebook.plotting import render
-
-render(ax_client.get_contour_plot())
-render(ax_client.get_contour_plot(param_x="x3", param_y="x4", metric_name="l2norm"))
-render(ax_client.get_optimization_trace(objective_optimum=hartmann6.fmin))  # Objective_optimum is optional.
+from ax.utils.notebook.plotting import render, init_notebook_plotting
+from ax.plot.contour import plot_contour
+plot = plot_contour(model=gpei,
+                param_x=opt_list[0],
+                param_y=opt_list[1],
+                metric_name="base",)
+render(plot)
+ax_client.generation_strategy.model = gpei
+init_notebook_plotting(offline=True)
+# render(ax_client.get_contour_plot())
+render(ax_client.get_contour_plot(param_x=opt_list[0], param_y=opt_list[0]))#, metric_name=base))
+# render(ax_client.get_optimization_trace(objective_optimum=hartmann6.fmin))  # Objective_optimum is optional.
 
 ax_client.save_to_json_file()  # For custom filepath, pass `filepath` argument.
 restored_ax_client = AxClient.load_from_json_file()  # For custom filepath, pass `filepath` argument.
