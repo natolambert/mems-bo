@@ -1,44 +1,44 @@
-import torch
-from botorch.models import SingleTaskGP
-from botorch.fit import fit_gpytorch_model
-from gpytorch.mlls import ExactMarginalLogLikelihood
-
 # conda env export > environment.yml
-
-import pandas as pd
-
-init_data = pd.read_csv('data/Valves_v0.csv')
-constraints = pd.read_csv('data/Valves_constraints.csv')
-from ax import optimize
-# best_parameters, best_values, experiment, model = optimize(
-#         parameters=[
-#           {
-#             "name": "x1",
-#             "type": "range",
-#             "bounds": [-10.0, 10.0],
-#           },
-#           {
-#             "name": "x2",
-#             "type": "range",
-#             "bounds": [-10.0, 10.0],
-#           },
-#         ],
-#         # Booth function
-#         evaluation_function=lambda p: (p["x1"] + 2*p["x2"] - 7)**2 + (2*p["x1"] + p["x2"] - 5)**2,
-#         minimize=True,
-#     )
-
 from ax.modelbridge.registry import Models
 from ax.service.ax_client import AxClient
+from ax import Arm, Metric, Runner, OptimizationConfig, Objective, Data
+import numpy as np
+import pandas as pd
 
+# Load Data
+init_data = pd.read_csv('data/Valves_v0.csv')
+constraints = pd.read_csv('data/Valves_constraints.csv')
+
+# Create Variables
 opt_list = ["N (fingers #)", "a (um)", ]
-data_sub = init_data[1]
+metrics = ['Energy']
+filter_fail = init_data['Failed'] != 1
+data_success = init_data[filter_fail]
+data_full = data_success[opt_list + metrics]
+data_params = data_success[opt_list]
+
+
+class MEMsMetric(Metric):
+    def fetch_trial_data(self, trial):
+        records = []
+        for arm_name, arm in trial.arms_by_name.items():
+            params = arm.parameters
+            mean, sem = eval_params(params)
+            records.append({
+                "arm_name": arm_name,
+                "metric_name": self.name,
+                "mean": mean,
+                "sem": sem,
+                "trial_index": trial.index,
+            })
+        return Data(df=pd.DataFrame.from_records(records))
+
 
 # TODO
 # sub data, add elements to experiment
 # figure out how the data is matched to a objective in a reasonable way
 # sample new values / save
-# visualization 
+# visualization
 def gen_parameters(data, constraints, opt_list):
     parameters = []
     for o in opt_list:
@@ -55,6 +55,11 @@ def gen_parameters(data, constraints, opt_list):
         sub["value_type"] = typ
         sub["log_scale"] = False
         parameters.append(sub)
+
+        # Other parameter types
+        # choice_param = ChoiceParameter(name="choice", values=["foo", "bar"], parameter_type=ParameterType.STRING)
+        # fixed_param = FixedParameter(name="fixed", value=[True], parameter_type=ParameterType.BOOL)
+
     return parameters
 
 
@@ -69,14 +74,57 @@ ax_client.create_experiment(
     parameter_constraints=None,  # Optional.
     outcome_constraints=None,  # Optional.
 )
+exp = ax_client._experiment
+
+def eval_params(parameterization):
+    data_eval = data_full
+    for key, val in parameterization.items():
+        data_eval = data_eval[data_eval[key] == val]
+    results = data_eval[metrics]
+    mean = np.mean(results)
+    sem = np.std(results)
+    return mean, sem
+
+optimization_config = OptimizationConfig(
+    objective=Objective(
+        metric=MEMsMetric(name="base"),
+        minimize=True,
+    ),
+)
+
+
+class MyRunner(Runner):
+    def run(self, trial):
+        return {"name": str(trial.index)}
+
+
+exp.runner = MyRunner()
+exp.optimization_config = optimization_config
+
+b = []
+for i, (idx, val) in enumerate(data_params.iterrows()):
+    p = dict()
+    for label in opt_list:
+        p[label] = int(val[label])
+    exp.new_trial().add_arm(Arm(name='Batch MEMs', parameters=p))
+
+    # ax_client.attach_trial(parameters=p)
+
+for t in exp.trials:
+    exp.trials[t].run()
 
 # Pull out of API for more specific iteration
-exp = ax_client._experiment
 batch = 10
 print(f"Running Batch GP+EI optimization of {batch} samples")
 # Reinitialize GP+EI model at each step with updated data.
-gpei = Models.BOTORCH(experiment=exp, data=init_data)
+data = exp.fetch_data()
+gpei = Models.BOTORCH(experiment=exp, data=data)
 generator = gpei.gen(5)
+
+exp.new_batch_trial(generator_run=generator)
+for arm in exp.trials[2].arms:
+    print(arm)
+
 # generator_run = gpei.gen(5)
 # experiment.new_batch_trial(generator_run=generator_run)
 
@@ -152,7 +200,7 @@ for i in range(25):
 ax_client.get_trials_data_frame().sort_values('trial_index')
 best_parameters, values = ax_client.get_best_parameters()
 
-from ax.utils.notebook.plotting import render, init_notebook_plotting
+from ax.utils.notebook.plotting import render
 
 render(ax_client.get_contour_plot())
 render(ax_client.get_contour_plot(param_x="x3", param_y="x4", metric_name="l2norm"))

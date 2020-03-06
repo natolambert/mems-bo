@@ -1,4 +1,4 @@
-﻿,t (um),w(um),L (um),b (um),λ (um),a (um),N (fingers #),w (um),Power (mW),Input current (mA),Voltage across 800 ohm at triggering,Time (ms),Initial resistance (k-ohm),Notes/Comments,Failed
+﻿,t (um),w(um),L (um),b (um),λ (um),a (um),N (fingers #),w (um),Power (mW),Input current (mA),Voltage across 800 ohm at triggering,Time (ms),Initial resistance (k-ohm),Energy,Failed
 0,0.43,15,100,20,50,300,1,10,300,,,,,,
 1,0.43,15,700,20,200,1500,30,50,400,,,,,,
 2,float,float,int,float,float,int,int,float,float,,,,,,
