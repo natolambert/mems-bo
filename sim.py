@@ -1,6 +1,11 @@
-from ax.modelbridge.registry import Models
-from ax.service.ax_client import AxClient
-from ax import  * #ParameterType, FixedParameter, Arm, Metric, Runner, OptimizationConfig, Objective, Data
+from ax import (
+    ComparisonOp,
+    ParameterType, Parameter, RangeParameter, ChoiceParameter,
+    FixedParameter, OutcomeConstraint, SimpleExperiment, Models,
+    Arm, Metric, Runner, OptimizationConfig, Objective, Data,
+    SearchSpace
+)
+
 import numpy as np
 import pandas as pd
 
@@ -34,12 +39,51 @@ class MEMsMetric(Metric):
             })
         return Data(df=pd.DataFrame.from_records(records))
 
+
 def gen_search_space(cfg):
     l = []
     for key, item in cfg.space.items():
-        print( key)
+        if item.value_type == 'float':
+            typ = ParameterType.FLOAT
+        elif item.value_type == 'int':
+            typ = ParameterType.INT
+        elif item.value_type == 'bool':
+            typ == Parameter.BOOL
+        else:
+            raise ValueError("invalid search space value type")
 
-    return
+        if item.type == 'range':
+            ss = RangeParameter(
+                name=key, parameter_type=typ, lower=item.bounds[0], upper=item.bounds[1], log_scale=item.log_scale,
+            )
+        elif item.type == 'fixed':
+            ss = FixedParameter(name=key, value=item.bounds, parameter_type=typ)
+        elif item.type == 'choice':
+            ss = ChoiceParameter(name=key, parameter_type=typ, values=item.bounds)
+        else:
+            raise ValueError("invalid search space parameter type")
+        l.append(ss)
+    return l
+
+
+def gen_outcome_constraints(cfg):
+    l = []
+    for key, item in cfg.constraints.items():
+        if item.type == 'GEQ':
+            op = ComparisonOp.GEQ
+        elif item.type == 'LEQ':
+            op = ComparisonOp.LEQ
+        else:
+            raise ValueError("Improper Constraint Type")
+        cons = OutcomeConstraint(
+            metric=MEMsMetric(name=key),
+            op=op,
+            bound=item.value,
+            relative=False,
+        )
+        l.append(cons)
+    return l
+
 
 @hydra.main(config_path='conf/conf.yaml')
 def mems_exp(cfg):
@@ -51,70 +95,20 @@ def mems_exp(cfg):
     outcome_con = gen_outcome_constraints(cfg.problem)
 
     exp = SimpleExperiment(
-            name="PID Control Robot",
-            search_space=SearchSpace(search_space),
-            evaluation_function=bo_rollout_wrapper,
-            objective_name="Reward",
-            minimize=False,
-            outcome_constraints=outcome_con,
-        )
-
-
-    ax_client = AxClient()
-    ax_client.create_experiment(
-        name="Jumping Robot",
-        parameters=[{
-            "name": "N",
-            "type": "range",
-            "bounds": [1, 6],
-            "value_type": "int",  # Optional, defaults to inference from type of "bounds".
-            "log_scale": False,  # Optional, defaults to False.
-        },
-            {
-                "name": "L",
-                "type": "range",
-                "bounds": [500e-6, 1.9e-2],
-                "value_type": "float",  # Optional, defaults to inference from type of "bounds".
-                "log_scale": True,  # Optional, defaults to False.
-            },
-            {
-                "name": "w",
-                "type": "range",
-                "bounds": [4.0e-5, 4.0e-3],
-                "value_type": "float",  # Optional, defaults to inference from type of "bounds".
-                "log_scale": True,  # Optional, defaults to False.
-            },
-            # FixedParameter(name="maxF", value=15.0e-3, parameter_type=ParameterType.FLOAT),
-            # FixedParameter(name="maxS", value=0.5e-2, parameter_type=ParameterType.FLOAT),
-            # FixedParameter(name="maxX", value=5.0e-3, parameter_type=ParameterType.FLOAT),
-            # FixedParameter(name="T", value=550.0e-6, parameter_type=ParameterType.FLOAT),
-            # FixedParameter(name="E", value=170.0e9, parameter_type=ParameterType.FLOAT),
-        ],
+        name="PID Control Robot",
+        search_space=SearchSpace(search_space),
+        evaluation_function=jumper,
         objective_name="Energy",
-        minimize=False,  # Optional, defaults to False.
-        parameter_constraints=[],  # Optional.
-        outcome_constraints=[],  # ["Energy >= 0"],  # Optional.
+        minimize=False,
+        outcome_constraints=outcome_con,
     )
-    # # [
-    #         OutcomeConstraint(
-    #             metric=L2NormMetric(
-    #                 name="Energy", param_names=[f"x{i}" for i in range(6)], noise_sd=0.2
-    #             ),
-    #             op=ComparisonOp.QEQ,
-    #             bound=0,
-    #             relative=False,
-    #         )
-    # #     ],
-    exp = ax_client._experiment
 
     optimization_config = OptimizationConfig(
         objective=Objective(
-            metric=MEMsMetric(name="base"),
+            metric=MEMsMetric(name="Energy"),
             minimize=False,
         ),
     )
-
-
 
     class MyRunner(Runner):
         def run(self, trial):
@@ -122,92 +116,67 @@ def mems_exp(cfg):
 
     exp.runner = MyRunner()
     exp.optimization_config = optimization_config
+    from ax.plot.trace import optimization_trace_single_method
+    from ax.utils.notebook.plotting import render, init_notebook_plotting
+    from ax.plot.contour import plot_contour
 
-    # exp.new_batch_trial()
-
-    for t in exp.trials:
-        exp.trials[t].run()
-
-    print(f"Running Sobol initialization trials...")
+    print(f"Running {cfg.bo.random} Sobol initialization trials...")
     sobol = Models.SOBOL(exp.search_space)
-    num_search = 15
+    num_search = cfg.bo.random
     for i in range(num_search):
         exp.new_trial(generator_run=sobol.gen(1))
         exp.trials[len(exp.trials) - 1].run()
 
-    data = exp.fetch_data()
+    # data = exp.fetch_data()
+    gpei = Models.BOTORCH(experiment=exp, data=exp.eval())
+    plot = plot_contour(model=gpei,
+                        param_x="N",
+                        param_y="L",
+                        metric_name="Energy", )
+    data = plot[0]['data']
+    lay = plot[0]['layout']
 
-    num_opt = 15
+    render(plot)
+
+    num_opt = cfg.bo.optimized
     for i in range(num_opt):
         print(f"Running GP+EI optimization trial {i + 1}/{num_opt}...")
         # Reinitialize GP+EI model at each step with updated data.
-        gpei = Models.BOTORCH(experiment=exp, data=data)
         batch = exp.new_trial(generator_run=gpei.gen(1))
-        exp.trials[len(exp.trials) - 1].run()
-        data = exp.fetch_data()
+        gpei = Models.BOTORCH(experiment=exp, data=exp.eval())
 
-    # from ax.plot.trace import optimization_trace_single_method
-    # from ax.utils.notebook.plotting import render, init_notebook_plotting
-    # from ax.plot.contour import plot_contour
-    #
-    # print(f"Running Sobol initialization trials...")
-    # sobol = Models.SOBOL(exp.search_space)
-    # num_search = 10
-    # for i in range(num_search):
-    #     exp.new_trial(generator_run=sobol.gen(1))
-    #     exp.trials[len(exp.trials) - 1].run()
-    #
-    # # data = exp.fetch_data()
-    # gpei = Models.BOTORCH(experiment=exp, data=exp.eval())
-    # plot = plot_contour(model=gpei,
-    #                     param_x="roll-p",
-    #                     param_y="pitch-p",
-    #                     metric_name="base", )
-    # data = plot[0]['data']
-    # lay = plot[0]['layout']
-    #
-    # render(plot)
-    #
-    # num_opt = 50
-    # for i in range(num_opt):
-    #     print(f"Running GP+EI optimization trial {i + 1}/{num_opt}...")
-    #     # Reinitialize GP+EI model at each step with updated data.
-    #     batch = exp.new_trial(generator_run=gpei.gen(1))
-    #     gpei = Models.BOTORCH(experiment=exp, data=exp.eval())
-    #
-    #     if (i % 5) == 0:
-    #         plot = plot_contour(model=gpei,
-    #                             param_x="roll-p",
-    #                             param_y="pitch-p",
-    #                             metric_name="base", )
-    #         data = plot[0]['data']
-    #         lay = plot[0]['layout']
-    #
-    #         render(plot)
+        if (i % 5) == 0:
+            plot = plot_contour(model=gpei,
+                                param_x="N",
+                                param_y="L",
+                                metric_name="Energy", )
+            data = plot[0]['data']
+            lay = plot[0]['layout']
 
-    best_parameters, values = ax_client.get_best_parameters()
+            render(plot)
 
-    # generator_run = gpei.gen(5)
-    # experiment.new_batch_trial(generator_run=generator_run)
+    objective_means = np.array([[exp.trials[trial].objective_mean] for trial in exp.trials])
+    best_objective_plot = optimization_trace_single_method(
+        y=np.maximum.accumulate(objective_means.T, axis=1), ylabel=cfg.metric.name,
+        # optimum=-3.32237,  # Known minimum objective for Hartmann6 function.
+    )
+    best_objective_plot2 = optimization_trace_single_method(
+        y=objective_means.T, ylabel=cfg.metric.name,
+        # optimum=-3.32237,  # Known minimum objective for Hartmann6 function.
+    )
 
-    #
-    # quit()
-    # sobol = Models.SOBOL(search_space=experiment.search_space)
-    # generator_run = sobol.gen(5)
-    #
-    # batch = exp.new_trial(generator_run=gpei.gen(1))
-    #
-    # quit()
+    data = best_objective_plot[0]['data']
+    lay = best_objective_plot[0]['layout']
+    lay['paper_bgcolor'] = 'rgba(0,0,0,0)'
+    lay['plot_bgcolor'] = 'rgba(0,0,0,0)'
+    fig = {
+        "data": best_objective_plot[0]['data'] + best_objective_plot2[0]['data'],  # data,
+        "layout": lay,
+    }
+    import plotly.graph_objects as go
+    go.Figure(fig).show()  # write_image("test.pdf")
 
-    # for i in range(25):
-    #     parameters, trial_index = ax_client.get_next_trial()
-    #     # Local evaluation here can be replaced with deployment to external system.
-    #     ax_client.complete_trial(trial_index=trial_index, raw_data=evaluate(parameters))
-    #     # _, trial_index = ax_client.get_next_trial()
-    #     ax_client.log_trial_failure(trial_index=trial_index)
-    #
-    # ax_client.get_trials_data_frame().sort_values('trial_index')
-    # best_parameters, values = ax_client.get_best_parameters()
+    render(best_objective_plot)
 
     from ax.utils.notebook.plotting import render, init_notebook_plotting
     from ax.plot.contour import plot_contour
@@ -215,11 +184,10 @@ def mems_exp(cfg):
     plot = plot_contour(model=gpei,
                         param_x="N",
                         param_y="L",
-                        metric_name="base", )
+                        metric_name="Strain", )
     data = plot[0]['data']
     lay = plot[0]['layout']
 
-    import plotly.graph_objects as go
     fig = {
         "data": data,
         "layout": lay,
