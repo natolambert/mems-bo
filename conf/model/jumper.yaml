@@ -1,0 +1,29 @@
+problem:
+  space:
+    N:
+      type: range
+      bounds: [1,6]
+      value_type: int
+      log_scale: false
+    L:
+      name: L
+      type: range
+      bounds: [500e-6, 1.9e-2]
+      value_type: float
+      log_scale: true
+    w:
+      type: range
+      bounds: [4.0e-5, 4.0e-3]
+      value_type: float
+      log_scale: false
+    F:
+      name: maxF
+      type: fixed
+      bounds: 15.0e-3
+      value_type: float
+      log_scale: false #FixedParameter(name="maxF", value=15.0e-3, parameter_type=ParameterType.FLOAT),
+  constraints:
+    Energy:
+      type: GEQ
+
+

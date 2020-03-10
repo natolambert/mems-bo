@@ -1,0 +1,8 @@
+defaults:
+  - model: jumper
+
+bo:
+  rand: 20
+  optimized: 50
+
+random_seed: 1
