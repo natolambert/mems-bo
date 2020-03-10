@@ -2,7 +2,8 @@ defaults:
   - model: jumper
 
 bo:
-  random: 2
-  optimized: 2
+  random: 20
+  optimized: 80
 
 random_seed: 1
+plot_during: false

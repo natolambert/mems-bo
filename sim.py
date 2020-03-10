@@ -129,23 +129,10 @@ def mems_exp(cfg):
 
     # data = exp.fetch_data()
     gpei = Models.BOTORCH(experiment=exp, data=exp.eval())
-    plot = plot_contour(model=gpei,
-                        param_x="N",
-                        param_y="L",
-                        metric_name="Energy", )
-    data = plot[0]['data']
-    lay = plot[0]['layout']
-
-    render(plot)
 
     num_opt = cfg.bo.optimized
     for i in range(num_opt):
-        print(f"Running GP+EI optimization trial {i + 1}/{num_opt}...")
-        # Reinitialize GP+EI model at each step with updated data.
-        batch = exp.new_trial(generator_run=gpei.gen(1))
-        gpei = Models.BOTORCH(experiment=exp, data=exp.eval())
-
-        if (i % 5) == 0:
+        if (i % 5) == 0 and cfg.plot_during:
             plot = plot_contour(model=gpei,
                                 param_x="N",
                                 param_y="L",
@@ -155,28 +142,53 @@ def mems_exp(cfg):
 
             render(plot)
 
-    objective_means = np.array([[exp.trials[trial].objective_mean] for trial in exp.trials])
-    best_objective_plot = optimization_trace_single_method(
-        y=np.maximum.accumulate(objective_means.T, axis=1), ylabel=cfg.metric.name,
-        # optimum=-3.32237,  # Known minimum objective for Hartmann6 function.
-    )
-    best_objective_plot2 = optimization_trace_single_method(
-        y=objective_means.T, ylabel=cfg.metric.name,
-        # optimum=-3.32237,  # Known minimum objective for Hartmann6 function.
-    )
+        print(f"Running GP+EI optimization trial {i + 1}/{num_opt}...")
+        # Reinitialize GP+EI model at each step with updated data.
+        batch = exp.new_trial(generator_run=gpei.gen(1))
+        gpei = Models.BOTORCH(experiment=exp, data=exp.eval())
 
-    data = best_objective_plot[0]['data']
-    lay = best_objective_plot[0]['layout']
-    lay['paper_bgcolor'] = 'rgba(0,0,0,0)'
-    lay['plot_bgcolor'] = 'rgba(0,0,0,0)'
-    fig = {
-        "data": best_objective_plot[0]['data'] + best_objective_plot2[0]['data'],  # data,
-        "layout": lay,
-    }
-    import plotly.graph_objects as go
-    go.Figure(fig).show()  # write_image("test.pdf")
+    def plot_learning(exp, cfg):
+        objective_means = np.array([[exp.trials[trial].objective_mean] for trial in exp.trials])
+        cumulative = optimization_trace_single_method(
+            y=np.maximum.accumulate(objective_means.T, axis=1), ylabel=cfg.metric.name,
+            trace_color=(83, 78, 194),
+            # optimum=-3.32237,  # Known minimum objective for Hartmann6 function.
+        )
+        all = optimization_trace_single_method(
+            y=objective_means.T, ylabel=cfg.metric.name,
+            model_transitions=[cfg.bo.random], trace_color=(114, 110, 180),
+            # optimum=-3.32237,  # Known minimum objective for Hartmann6 function.
+        )
 
-    render(best_objective_plot)
+        layout_learn = cumulative[0]['layout']
+        layout_learn['paper_bgcolor'] = 'rgba(0,0,0,0)'
+        layout_learn['plot_bgcolor'] = 'rgba(0,0,0,0)'
+
+        d1 = cumulative[0]['data']
+        d2 = all[0]['data']
+
+        for t in d1:
+            t['legendgroup'] = cfg.metric.name + ", cum. max"
+            if 'name' in t and t['name'] == 'Generator change':
+                t['name'] = 'End Random Iterations'
+            else:
+                t['name'] = cfg.metric.name + ", cum. max"
+
+        for t in d2:
+            t['legendgroup'] = cfg.metric.name
+            if 'name' in t and t['name'] == 'Generator change':
+                t['name'] = 'End Random Iterations'
+            else:
+                t['name'] = cfg.metric.name
+
+        fig = {
+            "data": d1 + d2,  # data,
+            "layout": layout_learn,
+        }
+        import plotly.graph_objects as go
+        return go.Figure(fig)
+
+    plot_learning(exp, cfg).show()
 
     from ax.utils.notebook.plotting import render, init_notebook_plotting
     from ax.plot.contour import plot_contour
@@ -184,17 +196,32 @@ def mems_exp(cfg):
     plot = plot_contour(model=gpei,
                         param_x="N",
                         param_y="L",
-                        metric_name="Strain", )
-    data = plot[0]['data']
-    lay = plot[0]['layout']
-
-    fig = {
-        "data": data,
-        "layout": lay,
-    }
-    go.Figure(fig).write_image("test.pdf")
-
+                        metric_name="Energy",
+                        lower_is_better=cfg.metric.minimize)
     render(plot)
+
+    plot = plot_contour(model=gpei,
+                        param_x="N",
+                        param_y="w",
+                        metric_name="Energy",
+                        lower_is_better=cfg.metric.minimize)
+    render(plot)
+
+    plot = plot_contour(model=gpei,
+                        param_x="w",
+                        param_y="L",
+                        metric_name="Energy",
+                        lower_is_better=cfg.metric.minimize)
+    render(plot)
+
+    # data = plot[0]['data']
+    # lay = plot[0]['layout']
+    #
+    # fig = {
+    #     "data": data,
+    #     "layout": lay,
+    # }
+    # go.Figure(fig).write_image("test.pdf")
 
 
 if __name__ == '__main__':
