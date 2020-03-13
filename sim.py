@@ -19,9 +19,7 @@ import logging
 # add cwd to path to allow running directly from the repo top level directory
 sys.path.append(os.getcwd())
 log = logging.getLogger(__name__)
-# Create Variables
-opt_list = ["N", "L"]
-metrics = ['U_stored']
+
 
 
 class MEMsMetric(Metric):

@@ -7,19 +7,14 @@ problem:
       log_scale: false
     L:
       type: range
-      bounds: [5e-4, 1.9e-3]
+      bounds: [5e-4, 5e-3]
       value_type: float
       log_scale: true
     w:
       type: range
       bounds: [4.0e-5, 4.0e-4]
       value_type: float
-      log_scale: false
-#    maxF:
-#      type: fixed
-#      bounds: 15.0e-3
-#      value_type: float
-#      log_scale: false #FixedParameter(name="maxF", value=15.0e-3, parameter_type=ParameterType.FLOAT),
+      log_scale: true
   constraints:
     Strain:
       type: LEQ
