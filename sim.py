@@ -128,6 +128,15 @@ def mems_exp(cfg):
     # data = exp.fetch_data()
     gpei = Models.BOTORCH(experiment=exp, data=exp.eval())
 
+    from ax.models.torch.botorch_defaults import predict_from_model
+    import torch
+    X = torch.Tensor([[2, 7e-4, 1e-4], [1, 5e-4, 1e-4]]).double()
+    mean, cov = predict_from_model(gpei.model.model, X)
+    # X(Tensor) – n x d parameters
+
+    ll = log_likelihood(X, mean, cov)
+    plot_ll(ll)
+
     num_opt = cfg.bo.optimized
     for i in range(num_opt):
         if (i % 5) == 0 and cfg.plot_during:

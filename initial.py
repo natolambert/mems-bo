@@ -6,7 +6,55 @@ import numpy as np
 import pandas as pd
 
 # Load Data
-init_data = pd.read_csv('data/Valves_v0.csv')
+# init_data = pd.read_csv('data/Valves_v0.csv')
+loaded = pd.read_csv('data/gca_motor_v0.csv')
+
+def trim_motor_data(init_data):
+    empty_rows_repeat = np.where(pd.isnull(init_data))[0]
+    empty_rows_repea_idxs = np.where(pd.isnull(init_data))[1]
+    # empty_unique = np.unique(empty_rows_repeat)
+    rows = []
+    for i in range(len(init_data)):
+        idxs = np.where(empty_rows_repeat==i)[0]
+        if len(idxs) == 0:
+            rows.append(i)
+
+        cols_idx = empty_rows_repea_idxs[idxs]
+        if 3 in cols_idx and 4 not in cols_idx:
+            init_data.at[i, "PULL-IN"] = -1
+            rows.append(i)
+
+        if 3 not in cols_idx and 4 in cols_idx:
+            init_data.at[i, "PULL-OUT"] = -1
+            rows.append(i)
+
+    init_data = init_data.replace("NP", value=-1)
+    init_data = init_data.replace(".", value=-1)
+    trimmed = init_data.iloc[rows]
+
+    trimmed = trimmed[trimmed["PULL-OUT"] != "X"]
+    trimmed = trimmed[trimmed["PULL-IN"] != "X"]
+    # init_data = init_data.replace("X", value=-1)
+
+    trimmed['PULL-IN'] = trimmed['PULL-IN'].astype(float)
+    trimmed['PULL-OUT'] = trimmed['PULL-OUT'].astype(float)
+
+    import plotly.graph_objects as go
+    fig = go.Figure()
+    fig.add_trace(go.Histogram(x=trimmed['PULL-IN'].values, name="PULL-IN", nbinsx=50))
+    fig.add_trace(go.Histogram(x=trimmed['PULL-OUT'].values, name="PULL-OUT", nbinsx=50))
+
+    # Overlay both histograms
+    fig.update_layout(barmode='overlay', plot_bgcolor='white',
+                      bargap=0.2,  # gap between bars of adjacent location coordinates
+                      bargroupgap=0.1  # gap between bars of the same location coordinates
+                      )
+    # Reduce opacity to see both histograms
+    fig.update_traces(opacity=0.75)
+    fig.show()
+    return trimmed, fig
+
+init_data, fig = trim_motor_data(loaded)
 constraints = pd.read_csv('data/Valves_constraints.csv')
 
 # Create Variables
