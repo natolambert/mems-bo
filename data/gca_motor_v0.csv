@@ -1,4 +1,4 @@
-,L (um),FW (um),V (V),PULL-IN,PULL-OUT
+idx, L,FW (um),V,PULL-IN,PULL-OUT
 3,10,3,10,-1.0,-1.0
 6,10,4,10,-1.0,-1.0
 24,10,3,20,-1.0,-1.0
