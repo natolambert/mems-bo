@@ -5,6 +5,129 @@ from ax import Arm, Metric, Runner, OptimizationConfig, Objective, Data
 import numpy as np
 import pandas as pd
 
+# def gca(parameters):
+# Conversion of Craig Schindler's Matlab code: Force_vs_Velocity_test_structures_theoretical.mat
+# solves the ode for the force vs velocity of an ideal gap closer
+# imports
+import numpy as np
+from scipy import integrate
+from scipy.integrate import odeint
+from scipy.integrate import RK45, solve_ivp
+parameters = {
+    "V": 50,
+    "L": 10e-6,
+    "F_load": 0,
+}
+# Defining Constants
+eps0 = 8.85e-12
+E = 170e9;
+Lol = 76e-6
+t_SOI = 40e-6
+x0 = 4.8e-6
+gf = 4.833e-6
+gb = 7.75e-6
+k_support = 50
+N_fing = 70 # was 96, real data is 70
+# gf is the nominal front gap
+# gb is the nominal back gap
+
+x_GCA = 3.833e-6
+V = parameters["V"] #V
+changeFactor = 100.0
+
+A = t_SOI * Lol       # intermediate value
+C = eps0 * A / gf # intermediate value
+Ctot = N_fing * C
+Fmin_mN = (1 / 2) * V ** 2 * Ctot / gf * 1e3
+
+L = parameters["L"] #um
+N_act = 16.0
+Fmin = N_fing * (1 / 2) * V ** 2 * eps0 * t_SOI * Lol * (1 / (gf) ** 2 - 1 / (gb) ** 2)
+
+# Load force
+Fload = parameters["F_load"]*1e-6
+#     Farr = np.array([50.0, 100.0, 150.0, 200.0, 250.0, 300.0, 350.0, 400.0])
+#     Farr = np.multiply(Farr, 1e-6)
+karr = np.divide(Fload, changeFactor * x_GCA)
+
+warr_um = np.divide(karr, (E * t_SOI / (N_act * L ** 3)) ** (1 / 3) * 1e6)
+warr_um_drawn = np.add(warr_um, 1)
+strainarr_percent = 3 * np.multiply((np.divide(warr_um, 1e6)), changeFactor * x_GCA / (2 * N_act) / (2 * (L / 2) ** 2) * 100)
+
+print("set values")
+int_time = np.array([0, 0.5])
+def pull_in(t, x):
+    """
+    def sim_lorenz(X, t, sigma, beta, rho):
+        u, v, w = X
+        up = -sigma * (u - v)
+        vp = rho * u - v - u * w
+        wp = -beta * w + u * v
+        return up, vp, wp
+    """
+    Fload_pullin = x[2]
+    V = x[3]
+
+    Fes = N_fing * (1 / 2) * (V ** 2) * eps0 * t_SOI * Lol * (1 / (gf - x[0]) ** 2 - 1 / (gb + x[0]) ** 2)
+    Fd = x[1] * N_fing * 1.85e-5 * Lol * (t_SOI ** 3) /((gf - x[0]) ** 3)
+    Fk = k_support * x[0]
+    m = ((1350e-6 * 20e-6) + 96 * (76e-6 * 5e-6) - 56 * (8e-6 * 8e-6)) * 40e-6 * 2300
+    m_spring = (600e-6 * 8e-6 * 40e-6 * 2300 * 16) * (1 / 3)  # spring effective mass, has a mass of 1/3 its actual mass
+    m_spring = 0  # remove this to actually count the spring mass
+    m = m + (m_spring / 3)  # shuttle mass + effective spring mass
+    dxdt = [[x[1]], [(Fes - Fd - Fk - Fload_pullin) / m], [0], [0]]
+    return x[1], (Fes - Fd - Fk - Fload_pullin)/m, 0, 0
+
+t0, t1 = 0, .001  # start and end
+t = np.linspace(t0, t1, 1000)  # the points of evaluation of solution\
+
+def solve_time(ode, t, x_initial, x_dot_initial, F_load, V):
+    end_time = 250e-6
+    states = []
+    success = False
+    solve_time = -1
+    solver = RK45(ode, 0, (x_initial, x_dot_initial, F_load, V), .5)
+    # y = odeint(ode, (x_initial, x_dot_initial, F_load, V), t)
+    while solver.t < end_time:
+        solver.step()
+        solver_state = solver.dense_output()
+        if solver_state.y_old[0] >= 3.833e-6:
+            success = True
+            states.append(solver_state.y_old)
+            solve_time = solver.dense_output().t
+            break
+        else:
+            states.append(solver_state.y_old)
+
+    return states, success, solve_time
+
+
+# time initial conditions
+# for pull-out x_initial = gf and xdot_initial = v_init
+# for pull-in x_initial = 0 and xdot_initial = 0 (edited)
+# See https://www2.eecs.berkeley.edu/Pubs/TechRpts/2019/EECS-2019-18.pdf
+# v_pullin = ( ((1/((x0-xpi)**2) - (1/(gb+xpi)**2))**-1) *2*k*(xpi)/(eps0*N*Lol*t_soi) )**(1/2) # implement eqn 4.17
+t_in = solve_time(pull_in, t, x_initial=0, x_dot_initial=0, F_load=Fload, V=V) # todo integrate
+
+v_init = (N*m_fing*v_fing + m_shut*v_shut)/m_gca
+v_pullout = ( ((1/(gf**2) - (1/(gb+x0-gf)**2))**-1) *2*k*(x0-gf)/(eps0*N*Lol*t_soi) )**(1/2) # implement eqn 4.19
+t_out = solve_time(pull_in, x_initial=x0-gf, x_dot_initial=v_init, F_load=Fload, V=V) # todo integrate
+# confirm above gf, gf, N
+# find above, x0, xpi
+
+# return {"V_in": (v_pullin, 0.0),
+#         "V_out": (v_pullout, 0.0),
+#         "T_in": (t_in, 0.0),
+#         "T_out": (t_out, 0.0)}
+
+
+
+
+
+
+
+
+# # #### # # #### # # #### # # #### # # #### # # #### # # #### # # #### # # #### # # #### # # ####
 # Load Data
 # init_data = pd.read_csv('data/Valves_v0.csv')
 loaded = pd.read_csv('data/gca_motor_v0.csv')
