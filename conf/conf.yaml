@@ -3,7 +3,7 @@ defaults:
 
 bo:
   random: 10
-  optimized: 20
+  optimized: 30
 
 random_seed: 1
 plot_during: false

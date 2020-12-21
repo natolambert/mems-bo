@@ -15,11 +15,12 @@ import os
 import sys
 import hydra
 import logging
+import plotly.graph_objects as go
+from plot import save_fig, plot_learning
 
 # add cwd to path to allow running directly from the repo top level directory
 sys.path.append(os.getcwd())
 log = logging.getLogger(__name__)
-
 
 
 class MEMsMetric(Metric):
@@ -93,17 +94,17 @@ def mems_exp(cfg):
     outcome_con = gen_outcome_constraints(cfg.problem)
 
     exp = SimpleExperiment(
-        name="PID Control Robot",
+        name=cfg.problem.name,
         search_space=SearchSpace(search_space),
         evaluation_function=jumper,
-        objective_name="Energy",
+        objective_name="Energy_(uJ)",
         minimize=False,
         outcome_constraints=outcome_con,
     )
 
     optimization_config = OptimizationConfig(
         objective=Objective(
-            metric=MEMsMetric(name="Energy"),
+            metric=MEMsMetric(name="Energy_(uJ)"),
             minimize=False,
         ),
     )
@@ -114,7 +115,6 @@ def mems_exp(cfg):
 
     exp.runner = MyRunner()
     exp.optimization_config = optimization_config
-    from ax.plot.trace import optimization_trace_single_method
     from ax.utils.notebook.plotting import render, init_notebook_plotting
     from ax.plot.contour import plot_contour
 
@@ -126,16 +126,6 @@ def mems_exp(cfg):
         exp.trials[len(exp.trials) - 1].run()
 
     # data = exp.fetch_data()
-    gpei = Models.BOTORCH(experiment=exp, data=exp.eval())
-
-    from ax.models.torch.botorch_defaults import predict_from_model
-    import torch
-    X = torch.Tensor([[2, 7e-4, 1e-4], [1, 5e-4, 1e-4]]).double()
-    mean, cov = predict_from_model(gpei.model.model, X)
-    # X(Tensor) – n x d parameters
-
-    ll = log_likelihood(X, mean, cov)
-    plot_ll(ll)
 
     num_opt = cfg.bo.optimized
     for i in range(num_opt):
@@ -143,7 +133,7 @@ def mems_exp(cfg):
             plot = plot_contour(model=gpei,
                                 param_x="N",
                                 param_y="L",
-                                metric_name="Energy", )
+                                metric_name="Energy_(uJ)", )
             data = plot[0]['data']
             lay = plot[0]['layout']
 
@@ -154,48 +144,9 @@ def mems_exp(cfg):
         batch = exp.new_trial(generator_run=gpei.gen(1))
         gpei = Models.BOTORCH(experiment=exp, data=exp.eval())
 
-    def plot_learning(exp, cfg):
-        objective_means = np.array([[exp.trials[trial].objective_mean] for trial in exp.trials])
-        cumulative = optimization_trace_single_method(
-            y=np.maximum.accumulate(objective_means.T, axis=1), ylabel=cfg.metric.name,
-            trace_color=(83, 78, 194),
-            # optimum=-3.32237,  # Known minimum objective for Hartmann6 function.
-        )
-        all = optimization_trace_single_method(
-            y=objective_means.T, ylabel=cfg.metric.name,
-            model_transitions=[cfg.bo.random], trace_color=(114, 110, 180),
-            # optimum=-3.32237,  # Known minimum objective for Hartmann6 function.
-        )
-
-        layout_learn = cumulative[0]['layout']
-        layout_learn['paper_bgcolor'] = 'rgba(0,0,0,0)'
-        layout_learn['plot_bgcolor'] = 'rgba(0,0,0,0)'
-
-        d1 = cumulative[0]['data']
-        d2 = all[0]['data']
-
-        for t in d1:
-            t['legendgroup'] = cfg.metric.name + ", cum. max"
-            if 'name' in t and t['name'] == 'Generator change':
-                t['name'] = 'End Random Iterations'
-            else:
-                t['name'] = cfg.metric.name + ", cum. max"
-
-        for t in d2:
-            t['legendgroup'] = cfg.metric.name
-            if 'name' in t and t['name'] == 'Generator change':
-                t['name'] = 'End Random Iterations'
-            else:
-                t['name'] = cfg.metric.name
-
-        fig = {
-            "data": d1 + d2,  # data,
-            "layout": layout_learn,
-        }
-        import plotly.graph_objects as go
-        return go.Figure(fig)
-
-    plot_learning(exp, cfg).show()
+    plot_learn = plot_learning(exp, cfg)
+    # go.Figure(plot_learn).show()
+    save_fig([plot_learn], "optimize")
 
     from ax.utils.notebook.plotting import render, init_notebook_plotting
     from ax.plot.contour import plot_contour
@@ -203,32 +154,26 @@ def mems_exp(cfg):
     plot = plot_contour(model=gpei,
                         param_x="N",
                         param_y="L",
-                        metric_name="Energy",
+                        metric_name="Energy_(uJ)",
                         lower_is_better=cfg.metric.minimize)
-    render(plot)
+    save_fig(plot, dir=f"N_L_Energy")
+    # render(plot)
 
     plot = plot_contour(model=gpei,
                         param_x="N",
                         param_y="w",
-                        metric_name="Energy",
+                        metric_name="Energy_(uJ)",
                         lower_is_better=cfg.metric.minimize)
-    render(plot)
+    # render(plot)
+    save_fig(plot, dir=f"N_w_Energy")
 
     plot = plot_contour(model=gpei,
                         param_x="w",
                         param_y="L",
-                        metric_name="Energy",
+                        metric_name="Energy_(uJ)",
                         lower_is_better=cfg.metric.minimize)
-    render(plot)
-
-    # data = plot[0]['data']
-    # lay = plot[0]['layout']
-    #
-    # fig = {
-    #     "data": data,
-    #     "layout": lay,
-    # }
-    # go.Figure(fig).write_image("test.pdf")
+    save_fig(plot, dir=f"w_L_Energy")
+    # render(plot)
 
 
 if __name__ == '__main__':

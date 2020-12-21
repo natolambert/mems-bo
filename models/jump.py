@@ -23,6 +23,6 @@ def jumper(parameters):
     robot_frame_mass_ratio = robot_mass / frame_mass
 
 
-    return {"Energy": (U_stored/ total_mass_mg, 0.0),
+    return {"Energy_(uJ)": (U_stored/ total_mass_mg, 0.0),
             "Strain": (strain, 0.0),
-            "Force": (F_required, 0.0)}
+            "Force_(N)": (F_required, 0.0)}

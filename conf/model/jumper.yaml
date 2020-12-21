@@ -1,4 +1,5 @@
 problem:
+  name: Jumper
   space:
     N:
       type: range
@@ -24,5 +25,5 @@ problem:
       value: 15.0e-3
 
 metric:
-  name: Energy
+  name: Energy (uJ)
   minimize: false
